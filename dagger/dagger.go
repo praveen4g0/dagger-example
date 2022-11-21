@@ -1,93 +1,79 @@
 package main
 
 import (
-	"context"
+	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"dagger.io/dagger"
+	"github.com/nicholasjackson/dagger-example/dagger/helper"
 )
 
+var ref = flag.String("ref", "dev", "tag or branch or sha")
+
 func main() {
-	ctx := context.Background()
+	flag.Parse()
 
-	client, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stdout))
+	build, err := helper.NewBuild()
 	if err != nil {
-		fmt.Printf("Error connecting to Dagger Engine: %s", err)
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	defer client.Close()
-
-	src := client.Host().Workdir()
-	if err != nil {
-		fmt.Printf("Error getting reference to host directory: %s", err)
+	apply(build)
+	if build.HasError() {
+		build.Logger.Error(build.LastError().Error())
 		os.Exit(1)
 	}
+}
 
-	golang := client.Container().From("golang:latest")
+func apply(build *helper.Build) {
+
+	app := buildApplication(build)
+
+	fmt.Println(packageApplication(build, app, *ref))
+}
+
+func buildApplication(build *helper.Build) *dagger.File {
+	done := build.LogStart("Application Build")
+	defer done()
+
+	src := build.Client.Host().Workdir()
+
+	golang := build.Client.Container().From("golang:latest")
 	golang = golang.WithMountedDirectory("/src", src).
 		WithWorkdir("/src").
 		WithEnvVariable("CGO_ENABLED", "0")
 
 	golang = golang.Exec(
 		dagger.ContainerExecOpts{
-			Args: []string{"go", "build", "-o", "build/"},
+			Args: []string{"go", "build", "-o", "build/dagger-example"},
 		},
 	)
 
-	path := "build/"
-	err = os.MkdirAll(filepath.Join(".", path), os.ModePerm)
-	if err != nil {
-		fmt.Printf("Error creating output folder: %s", err)
-		os.Exit(1)
+	return golang.Directory("./build").File("dagger-example")
+}
+
+func packageApplication(build *helper.Build, app *dagger.File, branch string) string {
+	if build.Cancelled() {
+		return ""
 	}
 
-	build := golang.Directory(path)
+	done := build.LogStart("Package Application")
+	defer done()
 
-	_, err = build.Export(ctx, path)
-	if err != nil {
-		fmt.Printf("Error writing directory: %s", err)
-		os.Exit(1)
-	}
+	prodImage := build.Client.Container().From("alpine:latest")
+	prodImage = prodImage.WithFS(
+		prodImage.FS().WithFile("/bin/myapp",
+			app,
+		)).
+		WithEntrypoint([]string{"/bin/myapp"})
 
-	cn, err := client.Container().
-		Build(src).
-		Publish(ctx, "nicholasjackson/dagger-example:latest")
-
-	if err != nil {
-		fmt.Printf("Error creating and pushing container: %s", err)
-		os.Exit(1)
-	}
-
-	deploy := client.Host().Workdir().
-		Directory("./deploy").
-		WithoutDirectory("cdktf.out")
-
-	cdktf := client.Container().From("nicholasjackson/cdktf:latest").
-		WithEnvVariable("DIGITALOCEAN_TOKEN", os.Getenv("DIGITALOCEAN_TOKEN")).
-		WithMountedDirectory("/src", deploy).
-		WithWorkdir("/src").
-		WithEntrypoint([]string{})
-
-	cdktf = cdktf.Exec(
-		dagger.ContainerExecOpts{
-			Args: []string{"cdktf", "get"},
-		},
-	).Exec(
-		dagger.ContainerExecOpts{
-			Args: []string{"cdktf", "apply", "--auto-approve"},
-		},
-	)
-
-	state := cdktf.File("./terraform.src.tfstate")
-	_, err = state.Export(ctx, "./deploy/terraform.src.tfstate")
+	addr, err := prodImage.Publish(build.ContextWithTimeout(helper.DefaultTimeout), "praveen4g0/dagger-example:"+branch)
 
 	if err != nil {
-		fmt.Printf("Error deploying application to DigitalOcean: %s", err)
-		os.Exit(1)
+		build.LogError(fmt.Errorf("Error creating and pushing container: %s", err))
 	}
 
-	fmt.Printf("Succesfully created new container: %s", cn)
+	return addr
 }

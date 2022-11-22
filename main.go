@@ -1,14 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 )
 
 func main() {
-  http.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
-    fmt.Fprint(rw, "Hello Dagger")
-  })
+	http.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
+		rw.Write([]byte("Welcome to Red Hat \n"))
+	})
 
-  http.ListenAndServe(":9090",nil)
+	http.ListenAndServe(":9090", nil)
 }

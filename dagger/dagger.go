@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"dagger.io/dagger"
+	"github.com/hashicorp/go-hclog"
 	"github.com/nicholasjackson/dagger-example/dagger/helper"
 )
 
@@ -21,17 +22,11 @@ func main() {
 	}
 
 	apply(build)
-	if build.HasError() {
-		build.Logger.Error(build.LastError().Error())
-		os.Exit(1)
-	}
 }
 
 func apply(build *helper.Build) {
-
 	app := buildApplication(build)
-
-	fmt.Println(packageApplication(build, app, *ref))
+	build.Logger.Log(hclog.Debug, packageApplication(build, app, *ref))
 }
 
 func buildApplication(build *helper.Build) *dagger.File {
@@ -69,7 +64,7 @@ func packageApplication(build *helper.Build, app *dagger.File, branch string) st
 		)).
 		WithEntrypoint([]string{"/bin/myapp"})
 
-	addr, err := prodImage.Publish(build.ContextWithTimeout(helper.DefaultTimeout), "praveen4g0/dagger-example:"+branch)
+	addr, err := prodImage.Publish(build.ContextWithTimeout(helper.DefaultTimeout), "quay.io/praveen4g0/dagger-example:"+branch)
 
 	if err != nil {
 		build.LogError(fmt.Errorf("Error creating and pushing container: %s", err))

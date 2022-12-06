@@ -11,22 +11,25 @@ import (
 )
 
 var ref = flag.String("ref", "dev", "tag or branch or sha")
+var registry = flag.String("reg", "quay.io", "provide image registry domain, defaults to quay.io")
+var repository = flag.String("user", "praveen4g0", "proide image registry username")
+var image_name = flag.String("image", "dagger-example", "Provide image name")
 
 func main() {
 	flag.Parse()
 
-	build, err := helper.NewBuild()
+	b, err := helper.NewBuild()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	apply(build)
+	build(b)
 }
 
-func apply(build *helper.Build) {
+func build(build *helper.Build) {
 	app := buildApplication(build)
-	build.Logger.Log(hclog.Debug, packageApplication(build, app, *ref))
+	build.Logger.Log(hclog.Debug, packageApplication(build, app, *registry, *repository, *image_name, *ref))
 }
 
 func buildApplication(build *helper.Build) *dagger.File {
@@ -49,7 +52,7 @@ func buildApplication(build *helper.Build) *dagger.File {
 	return golang.Directory("./build").File("dagger-example")
 }
 
-func packageApplication(build *helper.Build, app *dagger.File, branch string) string {
+func packageApplication(build *helper.Build, app *dagger.File, registry, repository, image_name, branch string) string {
 	if build.Cancelled() {
 		return ""
 	}
@@ -64,7 +67,7 @@ func packageApplication(build *helper.Build, app *dagger.File, branch string) st
 		)).
 		WithEntrypoint([]string{"/bin/myapp"})
 
-	addr, err := prodImage.Publish(build.ContextWithTimeout(helper.DefaultTimeout), "quay.io/praveen4g0/dagger-example:"+branch)
+	addr, err := prodImage.Publish(build.ContextWithTimeout(helper.DefaultTimeout), registry+"/"+repository+"/"+image_name+":"+branch)
 
 	if err != nil {
 		build.LogError(fmt.Errorf("Error creating and pushing container: %s", err))
